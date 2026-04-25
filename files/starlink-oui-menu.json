@@ -1,0 +1,12 @@
+{
+    "index": 35,
+    "view": "starlink",
+    "title": "Starlink",
+    "level": 2,
+    "parent": "network",
+    "parent_icon": "network",
+    "parent_index": 48,
+    "show_mode": [
+        "router"
+    ]
+}

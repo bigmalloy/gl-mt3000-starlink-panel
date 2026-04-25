@@ -1,0 +1,15 @@
+{
+  "starlink": {
+    "description": "Starlink dish dashboard (GL.iNet OUI)",
+    "read": {
+      "ubus": {
+        "starlink": [ "status", "dish" ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "starlink": [ "reboot_dish", "disable_hw_offloading" ]
+      }
+    }
+  }
+}

@@ -1,6 +1,7 @@
-# starlink-panel
+# starlink-panel — GL.iNet 4.x (MT-3000 / Beryl AX)
 
-LuCI dashboard for Starlink dish telemetry, alignment, alerts, IPv6 connectivity, traffic, and router configuration on OpenWrt 25.x.
+Starlink dish telemetry dashboard for **GL.iNet 4.x stock firmware** (GL-iNet Beryl AX / MT-3000 and compatible). Adds a **Starlink** entry under the Network tab in the GL.iNet web interface.
+
 Works with Starlink Gen3 and higher dish.
 
 ![screenshot](docs/screenshot.png)
@@ -9,26 +10,16 @@ Works with Starlink Gen3 and higher dish.
 
 ## Features
 
-- **Dish Telemetry** — state, uptime, latency, packet drop, obstruction %, throughput, SNR, GPS satellites, Ethernet speed, hardware/software version
-- **Alignment** — tilt and rotation guidance (↑↓ / ↻↶) with "well aligned" confirmation when within 5°
-- **Alerts** — 15 health indicators (heating, thermal throttle, shutdown, PSU throttle, motors, mast, slow Ethernet, software update, roaming, obstruction, disabled, SNR low, unexpected location, install pending, reboot required)
-- **IPv6 Connectivity** — WAN address, LAN prefix, delegated /56, default route
-- **Traffic** — instantaneous up/down throughput from dish gRPC, WAN and LAN byte/packet counters
-- **Quality** — dish→PoP latency, pings to 8.8.8.8 / 1.0.0.1, conntrack usage, router uptime
+- **Connection status** — CONNECTED / SEARCHING with last-updated timestamp
+- **Performance** — download/upload throughput, latency, drop rate, uptime, Ethernet speed
+- **Signal & Obstruction** — SNR, SNR persistently low, obstruction %, currently obstructed, GPS satellites, GPS valid, DL/UL restrictions, disablement code
+- **Antenna Alignment** — tilt angle, boresight elevation/azimuth, desired elevation/azimuth, attitude uncertainty, attitude state (filter convergence)
+- **Device Info** — hardware version, software version, country code, boot count, snow melt mode
+- **Recent Outages** — last outages with cause and duration
 - **Ready States** — RF, L1/L2, xPHY, SCP, AAP ready flags
-- **Boot Stats** — time to GPS valid, first PoP ping, stable connection
-- **Recent Outages** — last 6 outages with cause and duration
 - **Reboot Dish** button with confirmation dialog
 
 Auto-refreshes every 10 seconds.
-
-> **Note:** The alignment data is sourced directly from the dish API and is more accurate than the Starlink phone app, which can incorrectly report misalignment of over 6° on a well-aligned dish. Trust the dashboard.
-
----
-
-## Related
-
-This package is designed to work alongside [starlink-openwrt-ipv6-optimized](https://github.com/bigmalloy/starlink-openwrt-ipv6-optimized) — a companion guide for setting up OpenWrt as a Starlink bypass router, covering IPv6, odhcpd prefix lifetime fixes, firewall, congestion control, and more.
 
 ---
 
@@ -36,45 +27,56 @@ This package is designed to work alongside [starlink-openwrt-ipv6-optimized](htt
 
 | Requirement | Notes |
 |-------------|-------|
-| OpenWrt 25.x | Uses `apk` package manager; tested on 25.12.0 |
-| Architecture | `aarch64_cortex-a53` for the `starlink-dish` binary; `PKGARCH=all` so the APK installs on any architecture |
-| `luci-base` | LuCI web interface |
-| `rpcd` | RPC daemon (usually pre-installed) |
+| Router | GL.iNet Beryl AX (MT-3000) or compatible GL.iNet 4.x device |
+| Firmware | GL.iNet 4.x stock firmware (tested on 4.9.0) |
+| Architecture | `aarch64` — the `starlink-dish` binary is aarch64; the IPK itself is architecture-independent |
+| Package manager | `opkg` (built into GL.iNet firmware) |
 
 ---
 
 ## Installation
 
-### Step 1 — Install the signing key (one-time)
+### Step 1 — Download the IPK
 
-**Via LuCI (System → Administration → Repo Public Keys):**
-1. Download [starlink-panel-signing.pub](https://github.com/bigmalloy/starlink-panel/raw/main/keys/starlink-panel-signing.pub)
-2. In LuCI go to **System → Administration**
-3. Click the **Repo Public Keys** tab
-4. Drag the downloaded `.pub` file into the box — it is added automatically
+Download `luci-app-starlink-panel_*.ipk` from the [latest release](../../releases/latest).
 
-**Or via CLI:**
+### Step 2 — Install via GL.iNet web interface
+
+1. Open the GL.iNet web interface (http://192.168.1.1)
+2. Go to **System → Advanced Settings** to open LuCI
+3. In LuCI go to **System → Software**
+4. Click **Upload Package...**, select the `.ipk` file, click **Upload**
+
+**Or install via SSH:**
 ```sh
-wget -O /etc/apk/keys/starlink-panel-signing.pub \
-  https://raw.githubusercontent.com/bigmalloy/starlink-panel/main/keys/starlink-panel-signing.pub
+scp -O luci-app-starlink-panel_*.ipk root@192.168.1.1:/tmp/
+ssh root@192.168.1.1 'opkg install --force-depends /tmp/luci-app-starlink-panel_*.ipk'
 ```
 
-### Step 2 — Install the package
+### Step 3 — Navigate to the dashboard
 
-**Via LuCI (System → Software):**
-1. Download `luci-app-starlink-panel-*.apk` from the [latest release](../../releases/latest)
-2. In LuCI go to **System → Software**
-3. Click **Upload Package...**, select the `.apk` file, click **Upload**
+Go to **Network → Starlink** in the GL.iNet web interface.
 
-**Or via CLI:**
-```sh
-scp -O luci-app-starlink-panel-*.apk root@192.168.1.1:/tmp/
-ssh root@192.168.1.1 'apk add /tmp/luci-app-starlink-panel-*.apk'
-```
+> The post-install script downloads the `starlink-dish` binary in the background (~1.4 MB). Dish telemetry populates on the next poll once the binary is present. If it doesn't appear, run `/usr/bin/install-grpcurl` manually over SSH.
 
-Navigate to **Services → Starlink** in LuCI after install.
+---
 
-> The post-install script downloads `starlink-dish` in the background. Dish telemetry cards populate on the next poll once the binary is present.
+## How it works
+
+The package installs two components:
+
+| Component | Purpose |
+|-----------|---------|
+| `starlink-dish` binary | Talks to the dish at `192.168.100.1:9200` via gRPC; replaces the ~15 MB `grpcurl` |
+| GL.iNet OUI panel | Vue.js view + Lua RPC backend served by the GL.iNet nginx stack |
+
+The Lua backend at `/usr/lib/oui-httpd/rpc/starlink` shells out to `starlink-dish dish`, parses the JSON output, and returns it to the browser. No external dependencies — works fully offline.
+
+---
+
+## Gen3 dish quirk
+
+`disablement_code = 1` (UNKNOWN_REASON) is reported even when fully connected. The panel treats code 1 as **OKAY** when `rs_rf = true`, matching observed Gen3 behaviour.
 
 ---
 
@@ -83,30 +85,51 @@ Navigate to **Services → Starlink** in LuCI after install.
 Requires Docker.
 
 ```sh
-git clone https://github.com/bigmalloy/starlink-panel
-cd starlink-panel
-./build-apk-docker.sh
-# Output: output/luci-app-starlink-panel-*.apk
+git clone https://github.com/bigmalloy/gl-mt3000-starlink-panel
+cd gl-mt3000-starlink-panel
+./build-ipk-docker.sh
+# Output: output/luci-app-starlink-panel_1.0.0-22_all.ipk
 ```
 
-Uses the official `openwrt/sdk:aarch64_cortex-a53-25.12.0-rc5` Docker image.
+To also cross-compile the `starlink-dish` binary:
+```sh
+./build-rust-cross.sh
+# Output: output/starlink-dish  (aarch64 musl, ~1.4 MB stripped)
+```
+
+### Quick iteration (JS/Lua only — no rebuild needed)
+
+```sh
+# Push JS view update (gzip on the fly):
+gzip -c files/gl-sdk4-ui-starlink.common.js | ssh root@192.168.1.1 'cat > /www/views/gl-sdk4-ui-starlink.common.js.gz'
+
+# Push Lua RPC backend update:
+scp -O files/oui-rpc-starlink.lua root@192.168.1.1:/usr/lib/oui-httpd/rpc/starlink
+```
 
 ---
 
 ## Hardware Tested
 
-| Device | GL-iNet Beryl AX (MT3000) |
-|--------|---------------------------|
-| SoC | MediaTek MT7981B |
-| OpenWrt | 25.12.0 |
+| Field | Value |
+|-------|-------|
+| Device | GL-iNet Beryl AX (MT-3000) |
+| SoC | MediaTek MT7981B (aarch64) |
+| Firmware | GL.iNet 4.9.0 (OpenWrt 21.02-SNAPSHOT) |
 | Starlink | Gen3 dish (rev4_panda_prod2) |
 | ISP | Starlink Residential (AU) |
 
 ---
 
+## Related
+
+- [starlink-panel](https://github.com/bigmalloy/starlink-panel) — the OpenWrt 25.x variant of this package (APK, LuCI Advanced)
+
+---
+
 ## Buy me a beer
 
-If this project saved you some time, feel free to shout me a beer!
+If this saved you some time, feel free to shout me a beer!
 
 [![PayPal](https://img.shields.io/badge/PayPal-Buy%20me%20a%20beer-blue?logo=paypal)](https://paypal.me/bergfirmware)
 
